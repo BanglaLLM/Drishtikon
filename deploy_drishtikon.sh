@@ -41,24 +41,82 @@ else
   echo "Kind cluster $CLUSTER_NAME already exists"
 fi
 
-# Build Docker images
-echo "Building Docker images"
-docker build -t data-crawling:$VERSION ./data-crawling
-docker build -t data-analytics:$VERSION ./data-analytics
+# Function to build Docker images and get their hashes
+build_images() {
+  echo "Building Docker images"
+  DATA_CRAWLING_IMAGE_HASH=$(docker build -q -t data-crawling:$VERSION ./data-crawling)
+  DATA_ANALYTICS_IMAGE_HASH=$(docker build -q -t data-analytics:$VERSION ./data-analytics)
+  echo "Data Crawling image hash: $DATA_CRAWLING_IMAGE_HASH"
+  echo "Data Analytics image hash: $DATA_ANALYTICS_IMAGE_HASH"
+}
 
-# Load Docker images into kind cluster
-echo "Loading Docker images into Kind cluster: $CLUSTER_NAME"
-kind load docker-image data-crawling:$VERSION --name $CLUSTER_NAME
-kind load docker-image data-analytics:$VERSION --name $CLUSTER_NAME
+# Function to load Docker images into Kind cluster
+load_images() {
+  echo "Loading Docker images into Kind cluster: $CLUSTER_NAME"
+  kind load docker-image data-crawling:$VERSION --name $CLUSTER_NAME
+  kind load docker-image data-analytics:$VERSION --name $CLUSTER_NAME
+}
 
-# Deploy Elasticsearch using Helm
-echo "Deploying Elasticsearch using Helm"
-helm install data-storage ./data-storage/helm
+# Function to delete old Docker images from Kind nodes
+delete_old_images_from_kind() {
+  echo "Checking and deleting old Docker images from Kind nodes"
+  for node in $(kind get nodes --name $CLUSTER_NAME); do
+    # Data Crawling images
+    DATA_CRAWLING_IMAGES=$(docker exec $node crictl images | grep data-crawling)
+    DATA_CRAWLING_IMAGE_COUNT=$(echo "$DATA_CRAWLING_IMAGES" | wc -l)
+    if [[ $DATA_CRAWLING_IMAGE_COUNT -gt 1 ]]; then
+      CURRENT_DATA_CRAWLING_HASH=$(echo "$DATA_CRAWLING_IMAGES" | awk '{print $3}' | grep -v "$DATA_CRAWLING_IMAGE_HASH")
+      for HASH in $CURRENT_DATA_CRAWLING_HASH; do
+        echo "Deleting old data-crawling image with hash $HASH from node $node"
+        docker exec $node crictl rmi $HASH || true
+      done
+    fi
 
-# Deploy other services using kubectl
-echo "Deploying data-crawling service"
-kubectl apply -f ./data-crawling/k8s/deployment.yaml
-echo "Deploying data-analytics service"
-kubectl apply -f ./data-analytics/k8s/deployment.yaml
+    # Data Analytics images
+    DATA_ANALYTICS_IMAGES=$(docker exec $node crictl images | grep data-analytics)
+    DATA_ANALYTICS_IMAGE_COUNT=$(echo "$DATA_ANALYTICS_IMAGES" | wc -l)
+    if [[ $DATA_ANALYTICS_IMAGE_COUNT -gt 1 ]]; then
+      CURRENT_DATA_ANALYTICS_HASH=$(echo "$DATA_ANALYTICS_IMAGES" | awk '{print $3}' | grep -v "$DATA_ANALYTICS_IMAGE_HASH")
+      for HASH in $CURRENT_DATA_ANALYTICS_HASH; do
+        echo "Deleting old data-analytics image with hash $HASH from node $node"
+        docker exec $node crictl rmi $HASH || true
+      done
+    fi
+  done
+}
 
-echo "Deployment completed successfully"
+# Function to deploy services
+deploy_services() {
+  echo "Deploying Elasticsearch using Helm"
+  helm install data-storage ./data-storage/helm --wait
+
+  echo "Deploying data-crawling service"
+  kubectl apply -f ./data-crawling/k8s/deployment.yaml
+
+  echo "Deploying data-analytics service"
+  kubectl apply -f ./data-analytics/k8s/deployment.yaml
+
+}
+
+# Main function to build, load, and redeploy
+main() {
+  build_images
+  PREV_DATA_CRAWLING_HASH=$(docker images -q data-crawling:$VERSION)
+  PREV_DATA_ANALYTICS_HASH=$(docker images -q data-analytics:$VERSION)
+
+  if [[ "$DATA_CRAWLING_IMAGE_HASH" != "$PREV_DATA_CRAWLING_HASH" || "$DATA_ANALYTICS_IMAGE_HASH" != "$PREV_DATA_ANALYTICS_HASH" ]]; then
+    load_images
+    delete_old_images_from_kind
+    deploy_services
+  else
+    echo "No changes in images, skipping load and deploy"
+  fi
+
+  echo "Deployment completed successfully"
+  echo "Access data-crawling at http://localhost:8080"
+  echo "Access data-analytics at http://localhost:9090"
+}
+
+# Run the main function
+main
+

@@ -1,0 +1,3 @@
+[submodule "perplexica"]
+	path = perplexica
+	url = git@github.com:ItzCrazyKns/Perplexica.git

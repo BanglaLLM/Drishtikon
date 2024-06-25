@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: searxng
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: searxng
+  template:
+    metadata:
+      labels:
+        app: searxng
+    spec:
+      containers:
+      - name: searxng
+        image: docker.io/searxng/searxng:latest
+        ports:
+        - containerPort: 8080 
+        volumeMounts:
+        - name: searxng-config
+          mountPath: /etc/searxng
+      volumes:
+      - name: searxng-config
+        persistentVolumeClaim:
+          claimName: searxng-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: searxng
+spec:
+  selector:
+    app: searxng
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080 
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: searxng-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+
