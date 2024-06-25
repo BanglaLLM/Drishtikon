@@ -1,0 +1,19 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: data-crawling
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: data-crawling
+  template:
+    metadata:
+      labels:
+        app: data-crawling
+    spec:
+      containers:
+        - name: data-crawling
+          image: data-crawling:v1.0.0
+          ports:
+            - containerPort: 8080

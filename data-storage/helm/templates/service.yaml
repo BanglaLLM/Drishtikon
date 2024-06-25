@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "data-storage.fullname" . }}
+spec:
+  selector:
+    app: {{ include "data-storage.name" . }}
+  ports:
+    - protocol: TCP
+      port: 9200
+      targetPort: 9200
